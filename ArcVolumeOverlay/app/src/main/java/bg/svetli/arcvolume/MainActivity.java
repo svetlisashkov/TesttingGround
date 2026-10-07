@@ -56,6 +56,12 @@ public class MainActivity extends Activity {
         permission.setOnClickListener(v -> requestOverlayPermission());
         root.addView(permission);
 
+        Button accessibility = button("Отвори Accessibility настройки");
+        accessibility.setOnClickListener(v -> {
+            try { startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)); } catch (Exception ignored) {}
+        });
+        root.addView(accessibility);
+
         Button test = button("Тест – покажи OSD");
         test.setOnClickListener(v -> startListener(true));
         root.addView(test);
@@ -106,8 +112,13 @@ public class MainActivity extends Activity {
         boolean overlay = Settings.canDrawOverlays(this);
         int raw = Settings.System.getInt(getContentResolver(), ArcVolumeService.KEY_ARC_VOLUME, -1);
         String sony = raw >= 0 ? String.valueOf(Math.round(raw / 2.0f)) : "—";
+        String enabled = Settings.Secure.getString(getContentResolver(),
+                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        boolean keys = enabled != null && enabled.contains(
+                getPackageName() + "/.VolumeKeyAccessibilityService");
         status.setText((overlay ? "Overlay: разрешен" : "Overlay: НЕ е разрешен")
-                + "    Sony volume: " + sony);
+                + "    Sony volume: " + sony
+                + "    Бутони: " + (keys ? "АКТИВНИ" : "НЕАКТИВНИ"));
     }
 
     private TextView text(String s, int sp) {
