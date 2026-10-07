@@ -39,3 +39,5 @@ jobs:
           name: ArcVolume-APK
           path: ArcVolume.apk
           retention-days: 7
+
+# rebuild: sony-scale-style-v2
