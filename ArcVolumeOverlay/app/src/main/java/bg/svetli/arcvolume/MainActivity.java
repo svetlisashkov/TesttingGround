@@ -56,7 +56,7 @@ public class MainActivity extends Activity {
         permission.setOnClickListener(v -> requestOverlayPermission());
         root.addView(permission);
 
-        Button accessibility = button("Отвори Accessibility настройки");
+        Button accessibility = button("Активирай системен overlay (Accessibility)");
         accessibility.setOnClickListener(v -> {
             try { startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)); } catch (Exception ignored) {}
         });
@@ -118,7 +118,7 @@ public class MainActivity extends Activity {
                 getPackageName() + "/.VolumeKeyAccessibilityService");
         status.setText((overlay ? "Overlay: разрешен" : "Overlay: НЕ е разрешен")
                 + "    Sony volume: " + sony
-                + "    Бутони: " + (keys ? "АКТИВНИ" : "НЕАКТИВНИ"));
+                + "    System overlay: " + (keys ? "АКТИВЕН" : "НЕАКТИВЕН"));
     }
 
     private TextView text(String s, int sp) {
