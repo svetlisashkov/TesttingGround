@@ -3,6 +3,7 @@ package bg.svetli.arcvolume;
 import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Color;
+import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -59,6 +60,14 @@ public class MainActivity extends Activity {
         test.setOnClickListener(v -> startListener(true));
         root.addView(test);
 
+        Button sonyUp = button("Тест Sony + без системен OSD");
+        sonyUp.setOnClickListener(v -> adjustSony(AudioManager.ADJUST_RAISE));
+        root.addView(sonyUp);
+
+        Button sonyDown = button("Тест Sony − без системен OSD");
+        sonyDown.setOnClickListener(v -> adjustSony(AudioManager.ADJUST_LOWER));
+        root.addView(sonyDown);
+
         setContentView(root);
         refreshStatus();
     }
@@ -80,6 +89,17 @@ public class MainActivity extends Activity {
         i.putExtra(ArcVolumeService.EXTRA_TEST, test);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(i);
         else startService(i);
+    }
+
+    private void adjustSony(int direction) {
+        try {
+            AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+            if (am != null) {
+                // flags=0 deliberately avoids requesting Android's SHOW_UI flag.
+                am.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, 0);
+            }
+        } catch (Exception ignored) {}
+        new android.os.Handler(getMainLooper()).postDelayed(this::refreshStatus, 500);
     }
 
     private void refreshStatus() {
