@@ -27,6 +27,12 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      - name: Cache stable ARC Volume debug signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: arc-volume-debug-keystore-v1
+
       - name: Build debug APK
         run: gradle -p ArcVolumeOverlay assembleDebug --stacktrace
 
@@ -41,3 +47,5 @@ jobs:
           retention-days: 7
 
 # rebuild: sony-scale-style-v2
+
+# rebuild: stable-signing-v2
