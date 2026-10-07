@@ -20,6 +20,7 @@ import android.widget.ImageView;
 import android.widget.TextView;
 
 public class VolumeKeyAccessibilityService extends AccessibilityService {
+    public static volatile boolean isConnected = false;
     // Exact TCL ARC SystemUI window geometry observed with dumpsys:
     // RIGHT|CENTER_VERTICAL, x=50, y=0, w=120, h=400.
     private static final int SYS_W_PX = 120;
@@ -44,6 +45,7 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
     @Override
     protected void onServiceConnected() {
         super.onServiceConnected();
+        isConnected = true;
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         registerReceiver(receiver, new IntentFilter(ArcVolumeService.ACTION_SHOW_ACCESSIBILITY_OSD));
 
@@ -152,6 +154,7 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
 
     @Override
     public void onDestroy() {
+        isConnected = false;
         handler.removeCallbacksAndMessages(null);
         removeOverlay();
         try { unregisterReceiver(receiver); } catch (Exception ignored) {}
