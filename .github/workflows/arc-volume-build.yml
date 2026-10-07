@@ -6,6 +6,8 @@ on:
     paths:
       - 'ArcVolumeOverlay/**'
       - '.github/workflows/arc-volume-build.yml'
+  pull_request:
+    branches: [master]
   workflow_dispatch:
 
 jobs:
