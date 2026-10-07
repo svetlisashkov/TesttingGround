@@ -122,22 +122,21 @@ public class ArcVolumeService extends Service {
 
         TextView tv = new TextView(this);
         tv.setText(String.valueOf(displayValue));
-        tv.setTextColor(Color.WHITE);
+        // The native TCL ARC OSD uses a clean white foreground. Keep the
+        // number the same pure white and remove our own panel completely so
+        // the native dark OSD becomes the only visible background.
+        tv.setTextColor(Color.rgb(255, 255, 255));
         tv.setTextSize(textSp);
         tv.setGravity(Gravity.CENTER);
-        tv.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
-        tv.setPadding(dp(6), 0, dp(6), 0);
+        tv.setTypeface(android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.NORMAL));
+        tv.setPadding(0, 0, 0, 0);
+        tv.setBackgroundColor(Color.TRANSPARENT);
 
-        // Match TCL's native ARC OSD more closely: darker, less transparent,
-        // and with much smaller corner rounding than the first prototype.
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(Color.argb(242, 24, 31, 39));
-        bg.setCornerRadius(dp(5));
-        tv.setBackground(bg);
-
+        // TCL's volume window is 120 logical px wide. On this TV the UI
+        // density is 2x, so 60dp matches the native panel width exactly.
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
-                dp(52),
-                dp(46),
+                dp(60),
+                dp(42),
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                         | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
