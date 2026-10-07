@@ -61,3 +61,5 @@ jobs:
 # rebuild: accessibility-volume-keys-v6
 
 # rebuild: trusted-accessibility-overlay-v7
+
+# rebuild: live-accessibility-routing-v8
