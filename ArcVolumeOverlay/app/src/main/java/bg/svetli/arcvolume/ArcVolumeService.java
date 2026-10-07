@@ -122,15 +122,13 @@ public class ArcVolumeService extends Service {
     }
 
     private boolean isAccessibilityOverlayEnabled() {
-        String enabled = Settings.Secure.getString(
-                getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
-        return enabled != null && enabled.contains(
-                getPackageName() + "/.VolumeKeyAccessibilityService");
+        return VolumeKeyAccessibilityService.isConnected;
     }
 
     private void showVolume(int rawValue) {
-        // Accessibility overlays are trusted system overlays and are drawn above TCL's
-        // SYSTEM_ERROR ARC volume window. Use that path whenever the service is enabled.
+        // Accessibility overlays are trusted system overlays. Route through the live
+        // bound accessibility service so Android does not clamp us to the untrusted
+        // APPLICATION_OVERLAY layer/opacity.
         if (isAccessibilityOverlayEnabled()) {
             Intent i = new Intent(ACTION_SHOW_ACCESSIBILITY_OSD);
             i.setPackage(getPackageName());
