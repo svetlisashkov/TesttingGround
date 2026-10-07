@@ -65,8 +65,36 @@ public class ArcVolumeService extends Service {
 
     private final BroadcastReceiver volumeReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
+            if (!"android.media.VOLUME_CHANGED_ACTION".equals(intent.getAction())) return;
+
+            final int stream = intent.getIntExtra(
+                    "android.media.EXTRA_VOLUME_STREAM_TYPE", -1);
+            if (stream != android.media.AudioManager.STREAM_MUSIC) return;
+
+            final int now = intent.getIntExtra(
+                    "android.media.EXTRA_VOLUME_STREAM_VALUE", -1);
+            final int before = intent.getIntExtra(
+                    "android.media.EXTRA_PREV_VOLUME_STREAM_VALUE", -1);
+
+            // This broadcast is emitted by AudioService at the first local volume
+            // change, roughly a second before Sony's final CEC Report Audio Status.
+            // Show our high-layer OSD immediately so TCL's +/- OSD never becomes visible.
+            int exact = readArcVolume();
+            if (exact >= 0 && now >= 0 && before >= 0 && now != before) {
+                int predicted = exact;
+                if (now > before) predicted = Math.min(100, exact + 2);
+                else if (now < before) predicted = Math.max(0, exact - 2);
+                showVolume(predicted);
+            } else if (exact >= 0) {
+                // Even if the OEM omitted the value extras, covering the TCL OSD
+                // immediately with the last known value is better than waiting for CEC.
+                showVolume(exact);
+            }
+
+            // The ContentObserver normally supplies the exact Sony-reported value later;
+            // this is a short backup read in case the OEM skips that notification.
             handler.removeCallbacks(readAndMaybeShow);
-            handler.postDelayed(readAndMaybeShow, 250);
+            handler.postDelayed(readAndMaybeShow, 180);
         }
     };
 
@@ -129,11 +157,8 @@ public class ArcVolumeService extends Service {
         // Accessibility overlays are trusted system overlays. Route through the live
         // bound accessibility service so Android does not clamp us to the untrusted
         // APPLICATION_OVERLAY layer/opacity.
-        if (isAccessibilityOverlayEnabled()) {
-            Intent i = new Intent(ACTION_SHOW_ACCESSIBILITY_OSD);
-            i.setPackage(getPackageName());
-            i.putExtra(EXTRA_RAW_VOLUME, rawValue);
-            sendBroadcast(i);
+        if (isAccessibilityOverlayEnabled()
+                && VolumeKeyAccessibilityService.showNow(rawValue)) {
             return;
         }
 
