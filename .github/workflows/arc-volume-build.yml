@@ -57,3 +57,5 @@ jobs:
 # rebuild: direct-audio-test-v4
 
 # rebuild: osd-fine-calibration-v5
+
+# rebuild: accessibility-volume-keys-v6
