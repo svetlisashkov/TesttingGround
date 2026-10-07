@@ -115,17 +115,24 @@ public class ArcVolumeService extends Service {
         int textSp = p.getInt("text_sp", 20);
         int durationMs = p.getInt("duration_ms", 2800);
 
+        // TCL stores the HDMI-ARC CEC volume on a 0..100 scale, while the
+        // Sony HT-RT3 front display uses a 0..50 scale. Convert the value
+        // shown by the overlay to the same number the Sony displays.
+        int displayValue = Math.round(value / 2.0f);
+
         TextView tv = new TextView(this);
-        tv.setText(String.valueOf(value));
+        tv.setText(String.valueOf(displayValue));
         tv.setTextColor(Color.WHITE);
         tv.setTextSize(textSp);
         tv.setGravity(Gravity.CENTER);
-        tv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        tv.setPadding(dp(8), 0, dp(8), 0);
+        tv.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+        tv.setPadding(dp(6), 0, dp(6), 0);
 
+        // Match TCL's native ARC OSD more closely: darker, less transparent,
+        // and with much smaller corner rounding than the first prototype.
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(Color.argb(215, 20, 20, 20));
-        bg.setCornerRadius(dp(12));
+        bg.setColor(Color.argb(242, 24, 31, 39));
+        bg.setCornerRadius(dp(5));
         tv.setBackground(bg);
 
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
