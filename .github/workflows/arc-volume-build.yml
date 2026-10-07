@@ -59,3 +59,5 @@ jobs:
 # rebuild: osd-fine-calibration-v5
 
 # rebuild: accessibility-volume-keys-v6
+
+# rebuild: trusted-accessibility-overlay-v7
