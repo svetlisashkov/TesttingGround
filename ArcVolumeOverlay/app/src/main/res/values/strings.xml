@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">ARC Volume</string>
-    <string name="accessibility_description">Наблюдава бутоните за сила на звука само за да покаже ARC Volume незабавно като доверен системен overlay; TCL продължава да управлява Sony по CEC.</string>
+    <string name="accessibility_description">Показва ARC Volume като доверен системен overlay над TCL OSD и използва най-ранното системно известие за промяна на силата на звука.</string>
 </resources>
