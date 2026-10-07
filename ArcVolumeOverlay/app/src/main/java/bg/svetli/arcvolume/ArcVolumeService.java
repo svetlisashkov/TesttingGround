@@ -30,6 +30,8 @@ import android.widget.TextView;
 public class ArcVolumeService extends Service {
     public static final String EXTRA_TEST = "test_overlay";
     public static final String KEY_ARC_VOLUME = "volume_music_hdmi_arc";
+    public static final String ACTION_SHOW_ACCESSIBILITY_OSD = "bg.svetli.arcvolume.SHOW_ACCESSIBILITY_OSD";
+    public static final String EXTRA_RAW_VOLUME = "raw_volume";
 
     private static final String CHANNEL_ID = "arc_volume_listener";
     private static final int NOTIFICATION_ID = 1001;
@@ -38,7 +40,7 @@ public class ArcVolumeService extends Service {
     // logical display 1920x1080, RIGHT|CENTER, x=50, y=0, requested 120x400.
     private static final int SYS_W_PX = 120;
     private static final int SYS_H_PX = 400;
-    private static final int SYS_X_PX = 78;
+    private static final int SYS_X_PX = 50;
     private static final int SYS_Y_PX = 0;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -119,7 +121,25 @@ public class ArcVolumeService extends Service {
         return d;
     }
 
+    private boolean isAccessibilityOverlayEnabled() {
+        String enabled = Settings.Secure.getString(
+                getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        return enabled != null && enabled.contains(
+                getPackageName() + "/.VolumeKeyAccessibilityService");
+    }
+
     private void showVolume(int rawValue) {
+        // Accessibility overlays are trusted system overlays and are drawn above TCL's
+        // SYSTEM_ERROR ARC volume window. Use that path whenever the service is enabled.
+        if (isAccessibilityOverlayEnabled()) {
+            Intent i = new Intent(ACTION_SHOW_ACCESSIBILITY_OSD);
+            i.setPackage(getPackageName());
+            i.putExtra(EXTRA_RAW_VOLUME, rawValue);
+            sendBroadcast(i);
+            return;
+        }
+
+        // Fallback for the case where Accessibility is not enabled yet.
         if (!Settings.canDrawOverlays(this) || windowManager == null) return;
 
         handler.removeCallbacks(hideOverlay);
@@ -129,14 +149,9 @@ public class ArcVolumeService extends Service {
         int displayValue = Math.round(value / 2.0f); // Sony HT-RT3 display scale: 0..50.
 
         FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(Color.TRANSPARENT);
+        root.setBackground(rounded(Color.argb(238, 17, 18, 20), 4.0f));
 
-        FrameLayout panel = new FrameLayout(this);
-        panel.setBackground(rounded(Color.argb(238, 17, 18, 20), 4.0f));
-        FrameLayout.LayoutParams panelLp = new FrameLayout.LayoutParams(
-                dp(57), FrameLayout.LayoutParams.MATCH_PARENT);
-        panelLp.gravity = Gravity.CENTER;
-        root.addView(panel, panelLp);
+        FrameLayout panel = root;
 
         TextView number = new TextView(this);
         number.setText(String.valueOf(displayValue));
