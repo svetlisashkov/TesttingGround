@@ -35,7 +35,7 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
     private TextView numberView;
     private View fillView;
     private int trackHeightPx;
-    private final Runnable hide = this::removeOverlay;
+    private final Runnable hide = this::hideOverlay;
 
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
@@ -53,6 +53,7 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
         instance = this;
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         registerReceiver(receiver, new IntentFilter(ArcVolumeService.ACTION_SHOW_ACCESSIBILITY_OSD));
+        ensureOverlay();
 
         // Keep the Settings observer alive.
         Intent service = new Intent(this, ArcVolumeService.class);
@@ -80,29 +81,36 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
 
     private void showVolume(int rawValue) {
         if (windowManager == null) return;
-
         handler.removeCallbacks(hide);
+
+        ensureOverlay();
+        if (overlay == null || numberView == null || fillView == null) return;
 
         int value = Math.max(0, Math.min(100, rawValue));
         int displayValue = Math.round(value / 2.0f);
 
-        // If the trusted overlay is already visible, update it in place. This avoids
-        // remove/add latency and makes repeated Volume +/- presses completely smooth.
-        if (overlay != null && numberView != null && fillView != null) {
-            numberView.setText(String.valueOf(displayValue));
-            FrameLayout.LayoutParams fp =
-                    (FrameLayout.LayoutParams) fillView.getLayoutParams();
-            fp.height = Math.max(0, Math.round(trackHeightPx * (value / 100.0f)));
-            fillView.setLayoutParams(fp);
-            handler.postDelayed(hide, 3200);
-            return;
-        }
+        numberView.setText(String.valueOf(displayValue));
+        FrameLayout.LayoutParams fp =
+                (FrameLayout.LayoutParams) fillView.getLayoutParams();
+        fp.height = Math.max(0, Math.round(trackHeightPx * (value / 100.0f)));
+        fillView.setLayoutParams(fp);
+
+        // The window/surface already exists above TCL SystemUI. Revealing it is just
+        // an alpha change, avoiding the ~80-100 ms addView/first-draw delay seen in v10.
+        overlay.animate().cancel();
+        overlay.setAlpha(1.0f);
+        handler.postDelayed(hide, 3200);
+    }
+
+    private void ensureOverlay() {
+        if (windowManager == null || overlay != null) return;
 
         FrameLayout root = new FrameLayout(this);
         root.setBackground(rounded(Color.rgb(17, 18, 20), 4.0f));
+        root.setAlpha(0.0f);
 
         TextView number = new TextView(this);
-        number.setText(String.valueOf(displayValue));
+        number.setText("0");
         number.setTextColor(Color.WHITE);
         number.setTextSize(16);
         number.setGravity(Gravity.CENTER);
@@ -113,7 +121,6 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
         numberLp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
         numberLp.topMargin = dp(18);
         root.addView(number, numberLp);
-        numberView = number;
 
         FrameLayout track = new FrameLayout(this);
         track.setBackground(rounded(Color.rgb(105, 108, 112), 3.0f));
@@ -125,12 +132,10 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
 
         View fill = new View(this);
         fill.setBackground(rounded(Color.WHITE, 3.0f));
-        int fillHeight = Math.max(0, Math.round(trackHeightPx * (value / 100.0f)));
         FrameLayout.LayoutParams fillLp = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT, fillHeight);
+                FrameLayout.LayoutParams.MATCH_PARENT, 0);
         fillLp.gravity = Gravity.BOTTOM;
         track.addView(fill, fillLp);
-        fillView = fill;
 
         ImageView icon = new ImageView(this);
         icon.setImageResource(R.drawable.ic_volume);
@@ -158,11 +163,20 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
         try {
             windowManager.addView(root, lp);
             overlay = root;
-            handler.postDelayed(hide, 3200);
+            numberView = number;
+            fillView = fill;
         } catch (Exception ignored) {
             overlay = null;
             numberView = null;
             fillView = null;
+            trackHeightPx = 0;
+        }
+    }
+
+    private void hideOverlay() {
+        if (overlay != null) {
+            overlay.animate().cancel();
+            overlay.setAlpha(0.0f);
         }
     }
 
