@@ -11,6 +11,8 @@ import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
+import android.view.KeyEvent;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
@@ -75,7 +77,7 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
         // Because TYPE_ACCESSIBILITY_OVERLAY is above SYSTEM_ERROR, this completely
         // hides the original +/- ARC OSD underneath it.
         FrameLayout root = new FrameLayout(this);
-        root.setBackground(rounded(Color.argb(242, 17, 18, 20), 4.0f));
+        root.setBackground(rounded(Color.rgb(17, 18, 20), 4.0f));
 
         TextView number = new TextView(this);
         number.setText(String.valueOf(displayValue));
@@ -147,6 +149,33 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
 
     private int dp(float v) {
         return Math.round(v * getResources().getDisplayMetrics().density);
+    }
+
+    @Override
+    protected boolean onKeyEvent(KeyEvent event) {
+        int code = event.getKeyCode();
+        if (event.getAction() == KeyEvent.ACTION_DOWN
+                && (code == KeyEvent.KEYCODE_VOLUME_UP
+                || code == KeyEvent.KEYCODE_VOLUME_DOWN
+                || code == KeyEvent.KEYCODE_VOLUME_MUTE)) {
+            int raw = Settings.System.getInt(
+                    getContentResolver(), ArcVolumeService.KEY_ARC_VOLUME, -1);
+
+            if (raw >= 0) {
+                // The TCL ARC setting is 0..100 while the Sony display is 0..50,
+                // so one Sony step normally equals two raw TCL units.
+                if (code == KeyEvent.KEYCODE_VOLUME_UP) {
+                    raw = Math.min(100, raw + 2);
+                } else if (code == KeyEvent.KEYCODE_VOLUME_DOWN) {
+                    raw = Math.max(0, raw - 2);
+                }
+                showVolume(raw);
+            }
+        }
+
+        // Critical: do not consume the key. TCL still performs the native CEC
+        // operation; our overlay merely appears first and sits above its OSD.
+        return false;
     }
 
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {}
