@@ -38,8 +38,8 @@ public class ArcVolumeService extends Service {
     // logical display 1920x1080, RIGHT|CENTER, x=50, y=0, requested 120x400.
     private static final int SYS_W_PX = 120;
     private static final int SYS_H_PX = 400;
-    private static final int SYS_X_PX = 58;
-    private static final int SYS_Y_PX = -7;
+    private static final int SYS_X_PX = 78;
+    private static final int SYS_Y_PX = 0;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private WindowManager windowManager;
@@ -132,7 +132,7 @@ public class ArcVolumeService extends Service {
         root.setBackgroundColor(Color.TRANSPARENT);
 
         FrameLayout panel = new FrameLayout(this);
-        panel.setBackground(rounded(Color.argb(226, 17, 18, 20), 4.0f));
+        panel.setBackground(rounded(Color.argb(238, 17, 18, 20), 4.0f));
         FrameLayout.LayoutParams panelLp = new FrameLayout.LayoutParams(
                 dp(57), FrameLayout.LayoutParams.MATCH_PARENT);
         panelLp.gravity = Gravity.CENTER;
@@ -147,21 +147,21 @@ public class ArcVolumeService extends Service {
         FrameLayout.LayoutParams numberLp = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, dp(34));
         numberLp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-        numberLp.topMargin = dp(18);
+        numberLp.topMargin = dp(21);
         number.setTranslationX(-dp(1));
         panel.addView(number, numberLp);
 
         // Native-TV-like vertical volume track.
         FrameLayout track = new FrameLayout(this);
         track.setBackground(rounded(Color.rgb(105, 108, 112), 3.0f));
-        FrameLayout.LayoutParams trackLp = new FrameLayout.LayoutParams(dp(6), dp(84));
+        FrameLayout.LayoutParams trackLp = new FrameLayout.LayoutParams(dp(6), dp(102));
         trackLp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-        trackLp.topMargin = dp(66);
+        trackLp.topMargin = dp(57);
         panel.addView(track, trackLp);
 
         View fill = new View(this);
         fill.setBackground(rounded(Color.WHITE, 3.0f));
-        int trackHeight = dp(84);
+        int trackHeight = dp(102);
         int fillHeight = Math.max(0, Math.round(trackHeight * (value / 100.0f)));
         FrameLayout.LayoutParams fillLp = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, fillHeight);
@@ -172,9 +172,9 @@ public class ArcVolumeService extends Service {
         icon.setImageResource(R.drawable.ic_volume);
         icon.setColorFilter(Color.WHITE);
         icon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        FrameLayout.LayoutParams iconLp = new FrameLayout.LayoutParams(dp(30), dp(30));
+        FrameLayout.LayoutParams iconLp = new FrameLayout.LayoutParams(dp(25), dp(25));
         iconLp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
-        iconLp.bottomMargin = dp(19);
+        iconLp.bottomMargin = dp(10);
         panel.addView(icon, iconLp);
 
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
