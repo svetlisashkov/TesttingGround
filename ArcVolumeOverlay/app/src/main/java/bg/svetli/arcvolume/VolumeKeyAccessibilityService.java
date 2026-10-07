@@ -11,8 +11,6 @@ import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
-import android.provider.Settings;
-import android.view.KeyEvent;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
@@ -23,6 +21,7 @@ import android.widget.TextView;
 
 public class VolumeKeyAccessibilityService extends AccessibilityService {
     public static volatile boolean isConnected = false;
+    private static volatile VolumeKeyAccessibilityService instance;
     // Exact TCL ARC SystemUI window geometry observed with dumpsys:
     // RIGHT|CENTER_VERTICAL, x=50, y=0, w=120, h=400.
     private static final int SYS_W_PX = 120;
@@ -33,6 +32,9 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private WindowManager windowManager;
     private View overlay;
+    private TextView numberView;
+    private View fillView;
+    private int trackHeightPx;
     private final Runnable hide = this::removeOverlay;
 
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
@@ -48,6 +50,7 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
     protected void onServiceConnected() {
         super.onServiceConnected();
         isConnected = true;
+        instance = this;
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         registerReceiver(receiver, new IntentFilter(ArcVolumeService.ACTION_SHOW_ACCESSIBILITY_OSD));
 
@@ -55,6 +58,17 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
         Intent service = new Intent(this, ArcVolumeService.class);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(service);
         else startService(service);
+    }
+
+    public static boolean showNow(int rawValue) {
+        VolumeKeyAccessibilityService s = instance;
+        if (s == null || !isConnected || s.windowManager == null) return false;
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            s.showVolume(rawValue);
+        } else {
+            s.handler.post(() -> s.showVolume(rawValue));
+        }
+        return true;
     }
 
     private GradientDrawable rounded(int color, float radiusDp) {
@@ -68,14 +82,22 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
         if (windowManager == null) return;
 
         handler.removeCallbacks(hide);
-        removeOverlay();
 
         int value = Math.max(0, Math.min(100, rawValue));
         int displayValue = Math.round(value / 2.0f);
 
-        // Full 120x400 dark panel: same footprint as TCL's native ARC window.
-        // Because TYPE_ACCESSIBILITY_OVERLAY is above SYSTEM_ERROR, this completely
-        // hides the original +/- ARC OSD underneath it.
+        // If the trusted overlay is already visible, update it in place. This avoids
+        // remove/add latency and makes repeated Volume +/- presses completely smooth.
+        if (overlay != null && numberView != null && fillView != null) {
+            numberView.setText(String.valueOf(displayValue));
+            FrameLayout.LayoutParams fp =
+                    (FrameLayout.LayoutParams) fillView.getLayoutParams();
+            fp.height = Math.max(0, Math.round(trackHeightPx * (value / 100.0f)));
+            fillView.setLayoutParams(fp);
+            handler.postDelayed(hide, 3200);
+            return;
+        }
+
         FrameLayout root = new FrameLayout(this);
         root.setBackground(rounded(Color.rgb(17, 18, 20), 4.0f));
 
@@ -91,22 +113,24 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
         numberLp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
         numberLp.topMargin = dp(18);
         root.addView(number, numberLp);
+        numberView = number;
 
         FrameLayout track = new FrameLayout(this);
         track.setBackground(rounded(Color.rgb(105, 108, 112), 3.0f));
-        int trackHeight = dp(92);
-        FrameLayout.LayoutParams trackLp = new FrameLayout.LayoutParams(dp(6), trackHeight);
+        trackHeightPx = dp(92);
+        FrameLayout.LayoutParams trackLp = new FrameLayout.LayoutParams(dp(6), trackHeightPx);
         trackLp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
         trackLp.topMargin = dp(62);
         root.addView(track, trackLp);
 
         View fill = new View(this);
         fill.setBackground(rounded(Color.WHITE, 3.0f));
-        int fillHeight = Math.max(0, Math.round(trackHeight * (value / 100.0f)));
+        int fillHeight = Math.max(0, Math.round(trackHeightPx * (value / 100.0f)));
         FrameLayout.LayoutParams fillLp = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, fillHeight);
         fillLp.gravity = Gravity.BOTTOM;
         track.addView(fill, fillLp);
+        fillView = fill;
 
         ImageView icon = new ImageView(this);
         icon.setImageResource(R.drawable.ic_volume);
@@ -137,6 +161,8 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
             handler.postDelayed(hide, 3200);
         } catch (Exception ignored) {
             overlay = null;
+            numberView = null;
+            fillView = null;
         }
     }
 
@@ -145,37 +171,13 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
             try { windowManager.removeViewImmediate(overlay); } catch (Exception ignored) {}
         }
         overlay = null;
+        numberView = null;
+        fillView = null;
+        trackHeightPx = 0;
     }
 
     private int dp(float v) {
         return Math.round(v * getResources().getDisplayMetrics().density);
-    }
-
-    @Override
-    protected boolean onKeyEvent(KeyEvent event) {
-        int code = event.getKeyCode();
-        if (event.getAction() == KeyEvent.ACTION_DOWN
-                && (code == KeyEvent.KEYCODE_VOLUME_UP
-                || code == KeyEvent.KEYCODE_VOLUME_DOWN
-                || code == KeyEvent.KEYCODE_VOLUME_MUTE)) {
-            int raw = Settings.System.getInt(
-                    getContentResolver(), ArcVolumeService.KEY_ARC_VOLUME, -1);
-
-            if (raw >= 0) {
-                // The TCL ARC setting is 0..100 while the Sony display is 0..50,
-                // so one Sony step normally equals two raw TCL units.
-                if (code == KeyEvent.KEYCODE_VOLUME_UP) {
-                    raw = Math.min(100, raw + 2);
-                } else if (code == KeyEvent.KEYCODE_VOLUME_DOWN) {
-                    raw = Math.max(0, raw - 2);
-                }
-                showVolume(raw);
-            }
-        }
-
-        // Critical: do not consume the key. TCL still performs the native CEC
-        // operation; our overlay merely appears first and sits above its OSD.
-        return false;
     }
 
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {}
@@ -184,6 +186,7 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
     @Override
     public void onDestroy() {
         isConnected = false;
+        instance = null;
         handler.removeCallbacksAndMessages(null);
         removeOverlay();
         try { unregisterReceiver(receiver); } catch (Exception ignored) {}
