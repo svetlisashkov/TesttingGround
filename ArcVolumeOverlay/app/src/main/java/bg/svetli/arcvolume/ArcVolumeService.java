@@ -10,7 +10,6 @@ import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.SharedPreferences;
 import android.database.ContentObserver;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
@@ -22,7 +21,10 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.provider.Settings;
 import android.view.Gravity;
+import android.view.View;
 import android.view.WindowManager;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.TextView;
 
 public class ArcVolumeService extends Service {
@@ -32,9 +34,16 @@ public class ArcVolumeService extends Service {
     private static final String CHANNEL_ID = "arc_volume_listener";
     private static final int NOTIFICATION_ID = 1001;
 
+    // Measured directly from the TCL 98P745 SystemUI volume window:
+    // logical display 1920x1080, RIGHT|CENTER, x=50, y=0, requested 120x400.
+    private static final int SYS_W_PX = 120;
+    private static final int SYS_H_PX = 400;
+    private static final int SYS_X_PX = 50;
+    private static final int SYS_Y_PX = 0;
+
     private final Handler handler = new Handler(Looper.getMainLooper());
     private WindowManager windowManager;
-    private TextView overlayView;
+    private View overlayView;
     private boolean overlayAttached = false;
     private int lastVolume = -1;
 
@@ -55,7 +64,7 @@ public class ArcVolumeService extends Service {
     private final BroadcastReceiver volumeReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             handler.removeCallbacks(readAndMaybeShow);
-            handler.postDelayed(readAndMaybeShow, 300);
+            handler.postDelayed(readAndMaybeShow, 250);
         }
     };
 
@@ -75,7 +84,7 @@ public class ArcVolumeService extends Service {
             public void onChange(boolean selfChange) {
                 super.onChange(selfChange);
                 handler.removeCallbacks(readAndMaybeShow);
-                handler.postDelayed(readAndMaybeShow, 90);
+                handler.postDelayed(readAndMaybeShow, 45);
             }
         };
         cr.registerContentObserver(uri, false, volumeObserver);
@@ -89,7 +98,7 @@ public class ArcVolumeService extends Service {
         if (intent != null && intent.getBooleanExtra(EXTRA_TEST, false)) {
             handler.postDelayed(() -> {
                 int value = readArcVolume();
-                showVolume(value >= 0 ? value : 20);
+                showVolume(value >= 0 ? value : 28);
             }, 100);
         }
         return START_STICKY;
@@ -103,40 +112,66 @@ public class ArcVolumeService extends Service {
         }
     }
 
-    private void showVolume(int value) {
+    private GradientDrawable rounded(int color, float radiusDp) {
+        GradientDrawable d = new GradientDrawable();
+        d.setColor(color);
+        d.setCornerRadius(dp(radiusDp));
+        return d;
+    }
+
+    private void showVolume(int rawValue) {
         if (!Settings.canDrawOverlays(this) || windowManager == null) return;
 
         handler.removeCallbacks(hideOverlay);
         removeOverlay();
 
-        SharedPreferences p = getSharedPreferences("ui", MODE_PRIVATE);
-        int xDp = p.getInt("x_dp", 96);
-        int yDp = p.getInt("y_dp", 0);
-        int textSp = p.getInt("text_sp", 20);
-        int durationMs = p.getInt("duration_ms", 2800);
+        int value = Math.max(0, Math.min(100, rawValue));
+        int displayValue = Math.round(value / 2.0f); // Sony HT-RT3 display scale: 0..50.
 
-        // TCL stores the HDMI-ARC CEC volume on a 0..100 scale, while the
-        // Sony HT-RT3 front display uses a 0..50 scale. Convert the value
-        // shown by the overlay to the same number the Sony displays.
-        int displayValue = Math.round(value / 2.0f);
+        FrameLayout root = new FrameLayout(this);
+        root.setBackground(rounded(Color.rgb(17, 18, 20), 4.0f));
 
-        TextView tv = new TextView(this);
-        tv.setText(String.valueOf(displayValue));
-        // The native TCL ARC OSD uses a clean white foreground. Keep the
-        // number the same pure white and remove our own panel completely so
-        // the native dark OSD becomes the only visible background.
-        tv.setTextColor(Color.rgb(255, 255, 255));
-        tv.setTextSize(textSp);
-        tv.setGravity(Gravity.CENTER);
-        tv.setTypeface(android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.NORMAL));
-        tv.setPadding(0, 0, 0, 0);
-        tv.setBackgroundColor(Color.TRANSPARENT);
+        TextView number = new TextView(this);
+        number.setText(String.valueOf(displayValue));
+        number.setTextColor(Color.WHITE);
+        number.setTextSize(16);
+        number.setGravity(Gravity.CENTER);
+        number.setTypeface(android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.NORMAL));
+        FrameLayout.LayoutParams numberLp = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, dp(34));
+        numberLp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+        numberLp.topMargin = dp(15);
+        root.addView(number, numberLp);
 
-        // TCL's volume window is 120 logical px wide. On this TV the UI
-        // density is 2x, so 60dp matches the native panel width exactly.
+        // Native-TV-like vertical volume track.
+        FrameLayout track = new FrameLayout(this);
+        track.setBackground(rounded(Color.rgb(105, 108, 112), 3.0f));
+        FrameLayout.LayoutParams trackLp = new FrameLayout.LayoutParams(dp(6), dp(92));
+        trackLp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+        trackLp.topMargin = dp(62);
+        root.addView(track, trackLp);
+
+        View fill = new View(this);
+        fill.setBackground(rounded(Color.WHITE, 3.0f));
+        int trackHeight = dp(92);
+        int fillHeight = Math.max(0, Math.round(trackHeight * (value / 100.0f)));
+        FrameLayout.LayoutParams fillLp = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, fillHeight);
+        fillLp.gravity = Gravity.BOTTOM;
+        track.addView(fill, fillLp);
+
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(R.drawable.ic_volume);
+        icon.setColorFilter(Color.WHITE);
+        icon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        FrameLayout.LayoutParams iconLp = new FrameLayout.LayoutParams(dp(30), dp(30));
+        iconLp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+        iconLp.bottomMargin = dp(16);
+        root.addView(icon, iconLp);
+
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
-                dp(60),
-                dp(42),
+                SYS_W_PX,
+                SYS_H_PX,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                         | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
@@ -145,15 +180,16 @@ public class ArcVolumeService extends Service {
                         | WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED,
                 PixelFormat.TRANSLUCENT);
         lp.gravity = Gravity.RIGHT | Gravity.CENTER_VERTICAL;
-        lp.x = dp(xDp);
-        lp.y = dp(yDp);
-        lp.setTitle("ARC Volume Number");
+        lp.x = SYS_X_PX;
+        lp.y = SYS_Y_PX;
+        lp.setTitle("ARC Volume System OSD Cover");
 
         try {
-            windowManager.addView(tv, lp);
-            overlayView = tv;
+            windowManager.addView(root, lp);
+            overlayView = root;
             overlayAttached = true;
-            handler.postDelayed(hideOverlay, durationMs);
+            // Slightly longer than TCL's own OSD so the +/- ARC UI never peeks out at the end.
+            handler.postDelayed(hideOverlay, 3500);
         } catch (Exception ignored) {
             overlayView = null;
             overlayAttached = false;
@@ -168,7 +204,7 @@ public class ArcVolumeService extends Service {
         overlayAttached = false;
     }
 
-    private int dp(int value) {
+    private int dp(float value) {
         float d = getResources().getDisplayMetrics().density;
         return Math.round(value * d);
     }
@@ -198,7 +234,7 @@ public class ArcVolumeService extends Service {
 
         return b.setSmallIcon(R.drawable.ic_volume)
                 .setContentTitle("ARC Volume")
-                .setContentText("Listening for TCL ARC volume changes")
+                .setContentText("TCL ARC volume OSD replacement is active")
                 .setContentIntent(pi)
                 .setOngoing(true)
                 .setCategory(Notification.CATEGORY_SERVICE)
