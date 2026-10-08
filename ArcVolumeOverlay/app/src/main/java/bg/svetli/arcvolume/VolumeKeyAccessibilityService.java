@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.database.ContentObserver;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
 import android.graphics.drawable.GradientDrawable;
@@ -37,6 +38,10 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
     // rapid volume key. Keep only the latest pending query.
     private HandlerThread volumeReaderThread;
     private Handler volumeReaderHandler;
+    private ContentObserver arcVolumeObserver;
+    // Keep only the latest confirmed sample waiting for the UI thread.
+    private volatile int latestConfirmedVolume = -1;
+    private final Runnable renderLatestVolume = () -> renderConfirmedVolume(latestConfirmedVolume);
     private final Runnable readConfirmedVolume = () -> {
         int confirmed;
         try {
@@ -45,8 +50,11 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
         } catch (Exception e) {
             confirmed = -1;
         }
-        final int raw = confirmed;
-        handler.post(() -> renderConfirmedVolume(raw));
+        if (confirmed >= 0) {
+            latestConfirmedVolume = confirmed;
+            handler.removeCallbacks(renderLatestVolume);
+            handler.post(renderLatestVolume);
+        }
     };
     private WindowManager windowManager;
     private View overlay;
@@ -78,6 +86,17 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
         volumeReaderThread = new HandlerThread("ARC Volume OSD reader");
         volumeReaderThread.start();
         volumeReaderHandler = new Handler(volumeReaderThread.getLooper());
+        // Observe the confirmed ARC value directly instead of waiting for the
+        // 45ms service debounce and a second callback through the OSD path.
+        arcVolumeObserver = new ContentObserver(volumeReaderHandler) {
+            @Override public void onChange(boolean selfChange) {
+                volumeReaderHandler.removeCallbacks(readConfirmedVolume);
+                volumeReaderHandler.post(readConfirmedVolume);
+            }
+        };
+        getContentResolver().registerContentObserver(
+                Settings.System.getUriFor(ArcVolumeService.KEY_ARC_VOLUME),
+                false, arcVolumeObserver);
         registerReceiver(receiver, new IntentFilter(ArcVolumeService.ACTION_SHOW_ACCESSIBILITY_OSD));
         ensureOverlay();
         volumeReaderHandler.post(readConfirmedVolume);
@@ -276,6 +295,11 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
         isConnected = false;
         instance = null;
         handler.removeCallbacksAndMessages(null);
+        if (arcVolumeObserver != null) {
+            try { getContentResolver().unregisterContentObserver(arcVolumeObserver); }
+            catch (Exception ignored) {}
+            arcVolumeObserver = null;
+        }
         if (volumeReaderHandler != null) volumeReaderHandler.removeCallbacksAndMessages(null);
         if (volumeReaderThread != null) volumeReaderThread.quitSafely();
         removeOverlay();
