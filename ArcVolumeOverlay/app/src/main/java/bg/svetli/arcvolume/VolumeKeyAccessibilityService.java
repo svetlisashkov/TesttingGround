@@ -10,6 +10,7 @@ import android.graphics.PixelFormat;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.Looper;
 import android.provider.Settings;
 import android.content.SharedPreferences;
@@ -32,6 +33,21 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
     private static final int SYS_Y_PX = 0;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
+    // A SettingsProvider Binder read must not block the UI thread on each
+    // rapid volume key. Keep only the latest pending query.
+    private HandlerThread volumeReaderThread;
+    private Handler volumeReaderHandler;
+    private final Runnable readConfirmedVolume = () -> {
+        int confirmed;
+        try {
+            confirmed = Settings.System.getInt(getContentResolver(),
+                    ArcVolumeService.KEY_ARC_VOLUME, -1);
+        } catch (Exception e) {
+            confirmed = -1;
+        }
+        final int raw = confirmed;
+        handler.post(() -> renderConfirmedVolume(raw));
+    };
     private WindowManager windowManager;
     private View overlay;
     private TextView numberView;
@@ -59,8 +75,12 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
         isConnected = true;
         instance = this;
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+        volumeReaderThread = new HandlerThread("ARC Volume OSD reader");
+        volumeReaderThread.start();
+        volumeReaderHandler = new Handler(volumeReaderThread.getLooper());
         registerReceiver(receiver, new IntentFilter(ArcVolumeService.ACTION_SHOW_ACCESSIBILITY_OSD));
         ensureOverlay();
+        volumeReaderHandler.post(readConfirmedVolume);
 
         // Keep the Settings observer alive.
         Intent service = new Intent(this, ArcVolumeService.class);
@@ -93,11 +113,20 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
         ensureOverlay();
         if (overlay == null || numberView == null || fillView == null) return;
 
-        // The caller may pass an early, speculative volume estimate. Use it
-        // only as a trigger; the visible number must come from TCL's actual
-        // ARC setting. Never render a prediction as a confirmed Sony value.
-        int confirmed = Settings.System.getInt(getContentResolver(),
-                ArcVolumeService.KEY_ARC_VOLUME, -1);
+        // The caller may pass a speculative estimate. Use it only to reveal
+        // the pre-created OSD; query the confirmed Sony volume off the UI thread.
+        if (volumeReaderHandler != null) {
+            volumeReaderHandler.removeCallbacks(readConfirmedVolume);
+            volumeReaderHandler.post(readConfirmedVolume);
+        }
+
+        // The window/surface already exists above TCL SystemUI.
+        if (overlay.getAlpha() != 1.0f) overlay.setAlpha(1.0f);
+        handler.postDelayed(hide, 3200);
+    }
+
+    private void renderConfirmedVolume(int confirmed) {
+        if (overlay == null || numberView == null || fillView == null) return;
         if (confirmed >= 0) {
             int value = Math.max(0, Math.min(100, confirmed));
             // The TCL ARC value becomes 0 when Sony reports Mute. This only
@@ -123,12 +152,6 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
                 lastFillHeight = fillHeight;
             }
         }
-
-        // The window/surface already exists above TCL SystemUI. Revealing it is just
-        // an alpha change, avoiding the ~80-100 ms addView/first-draw delay seen in v10.
-        overlay.animate().cancel();
-        overlay.setAlpha(1.0f);
-        handler.postDelayed(hide, 3200);
     }
 
     private void ensureOverlay() {
@@ -253,6 +276,8 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
         isConnected = false;
         instance = null;
         handler.removeCallbacksAndMessages(null);
+        if (volumeReaderHandler != null) volumeReaderHandler.removeCallbacksAndMessages(null);
+        if (volumeReaderThread != null) volumeReaderThread.quitSafely();
         removeOverlay();
         try { unregisterReceiver(receiver); } catch (Exception ignored) {}
         super.onDestroy();
