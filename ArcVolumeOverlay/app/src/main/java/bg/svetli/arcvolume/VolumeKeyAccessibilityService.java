@@ -91,7 +91,8 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
         if (overlay == null || numberView == null || fillView == null) return;
 
         int value = Math.max(0, Math.min(100, rawValue));
-        int displayValue = Math.round(value / 2.0f);
+        int displayValue = getSharedPreferences("arc_volume_settings", MODE_PRIVATE)
+                .getInt("volume_scale", 50) == 100 ? value : Math.round(value / 2.0f);
 
         if (displayValue != lastDisplayed) {
             numberView.setText(String.valueOf(displayValue));
