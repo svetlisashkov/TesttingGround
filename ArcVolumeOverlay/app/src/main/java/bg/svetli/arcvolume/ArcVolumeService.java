@@ -55,9 +55,11 @@ public class ArcVolumeService extends Service {
     private static final long CEC_SETTLE_MS = 1600;
     private int lastShownRaw = -1;
     private int volumeDirection = 0;
+    private int lastLocalStreamValue = -1;
     private long lastVolumeKeyAt = 0;
     private final Runnable settleToExact = () -> {
         volumeDirection = 0;
+        lastLocalStreamValue = -1;
         int confirmed = readArcVolume();
         if (confirmed >= 0) {
             lastVolume = confirmed;
@@ -97,19 +99,29 @@ public class ArcVolumeService extends Service {
             // Show our high-layer OSD immediately so TCL's +/- OSD never becomes visible.
             int exact = readArcVolume();
             if (exact >= 0 && now >= 0 && before >= 0 && now != before) {
-                int direction = now > before ? 1 : -1;
                 long currentTime = SystemClock.uptimeMillis();
-                boolean sameBurst = lastShownRaw >= 0
+                boolean sameBurst = lastLocalStreamValue >= 0
                         && currentTime - lastVolumeKeyAt < BURST_GAP_MS;
-                // Predict from the latest visible value, not from a stale Sony
-                // report. CEC confirmation can arrive between two fast presses.
-                int base = sameBurst ? lastShownRaw : exact;
-                if (sameBurst && direction == volumeDirection) {
-                    base = direction > 0 ? Math.max(base, exact) : Math.min(base, exact);
-                }
-                volumeDirection = direction;
+                // AudioService may emit several notifications for one volume
+                // change. Count only changes of the actual local stream value.
+                int delta = sameBurst ? now - lastLocalStreamValue : now - before;
+                // Large discontinuities can result from stream reconfiguration,
+                // not remote-key presses. Avoid large speculative OSD jumps.
+                if (Math.abs(delta) > 3) delta = Integer.signum(delta);
+                lastLocalStreamValue = now;
                 lastVolumeKeyAt = currentTime;
-                showVolume(Math.max(0, Math.min(100, base + direction * 2)));
+                if (delta != 0) {
+                    int direction = Integer.signum(delta);
+                    int base = sameBurst && lastShownRaw >= 0 ? lastShownRaw : exact;
+                    if (sameBurst && direction == volumeDirection) {
+                        base = direction > 0 ? Math.max(base, exact) : Math.min(base, exact);
+                    }
+                    volumeDirection = direction;
+                    showVolume(Math.max(0, Math.min(100, base + delta * 2)));
+                } else {
+                    // A repeated broadcast refreshes visibility, not the number.
+                    showVolume(lastShownRaw >= 0 ? lastShownRaw : exact);
+                }
             } else if (exact >= 0) {
                 // Even if the OEM omitted the value extras, covering the TCL OSD
                 // immediately with the last known value is better than waiting for CEC.
