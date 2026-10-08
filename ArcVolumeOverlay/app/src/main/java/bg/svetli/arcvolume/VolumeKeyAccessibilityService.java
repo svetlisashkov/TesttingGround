@@ -36,6 +36,8 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
     private View overlay;
     private TextView numberView;
     private View fillView;
+    private ImageView iconView;
+    private boolean mutedIconVisible = false;
     private int trackHeightPx;
     private int lastDisplayed = -1;
     private int lastFillHeight = -1;
@@ -98,6 +100,13 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
                 ArcVolumeService.KEY_ARC_VOLUME, -1);
         if (confirmed >= 0) {
             int value = Math.max(0, Math.min(100, confirmed));
+            // The TCL ARC value becomes 0 when Sony reports Mute. This only
+            // changes the OSD glyph; audio/CEC control remains untouched.
+            boolean muted = value == 0;
+            if (iconView != null && muted != mutedIconVisible) {
+                iconView.setImageResource(muted ? R.drawable.ic_volume_muted : R.drawable.ic_volume);
+                mutedIconVisible = muted;
+            }
             int displayValue = getSharedPreferences("arc_volume_settings", MODE_PRIVATE)
                     .getInt("volume_scale", 50) == 100 ? value : Math.round(value / 2.0f);
 
@@ -187,6 +196,8 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
             overlay = root;
             numberView = number;
             fillView = fill;
+            iconView = icon;
+            mutedIconVisible = false;
         } catch (Exception ignored) {
             overlay = null;
             numberView = null;
@@ -222,6 +233,8 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
         overlay = null;
         numberView = null;
         fillView = null;
+        iconView = null;
+        mutedIconVisible = false;
         trackHeightPx = 0;
         lastDisplayed = -1;
         lastFillHeight = -1;
