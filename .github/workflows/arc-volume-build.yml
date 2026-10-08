@@ -73,3 +73,5 @@ jobs:
 # v12 build: preserve stable debug keystore
 
 # v13: 1px positioning controls
+
+# v14 JSON settings and selectable scale
