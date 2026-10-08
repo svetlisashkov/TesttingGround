@@ -19,6 +19,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
@@ -48,6 +49,21 @@ public class ArcVolumeService extends Service {
     private View overlayView;
     private boolean overlayAttached = false;
     private int lastVolume = -1;
+    // During rapid presses, the CEC-reported value can lag behind the early
+    // VOLUME_CHANGED_ACTION estimate. Keep the OSD monotonic within one burst.
+    private static final long BURST_GAP_MS = 900;
+    private static final long CEC_SETTLE_MS = 1600;
+    private int lastShownRaw = -1;
+    private int volumeDirection = 0;
+    private long lastVolumeKeyAt = 0;
+    private final Runnable settleToExact = () -> {
+        volumeDirection = 0;
+        int confirmed = readArcVolume();
+        if (confirmed >= 0) {
+            lastVolume = confirmed;
+            if (confirmed != lastShownRaw) showVolume(confirmed);
+        }
+    };
 
     private final Runnable hideOverlay = this::removeOverlay;
 
@@ -81,10 +97,19 @@ public class ArcVolumeService extends Service {
             // Show our high-layer OSD immediately so TCL's +/- OSD never becomes visible.
             int exact = readArcVolume();
             if (exact >= 0 && now >= 0 && before >= 0 && now != before) {
-                int predicted = exact;
-                if (now > before) predicted = Math.min(100, exact + 2);
-                else if (now < before) predicted = Math.max(0, exact - 2);
-                showVolume(predicted);
+                int direction = now > before ? 1 : -1;
+                long currentTime = SystemClock.uptimeMillis();
+                boolean sameBurst = lastShownRaw >= 0
+                        && currentTime - lastVolumeKeyAt < BURST_GAP_MS;
+                // Predict from the latest visible value, not from a stale Sony
+                // report. CEC confirmation can arrive between two fast presses.
+                int base = sameBurst ? lastShownRaw : exact;
+                if (sameBurst && direction == volumeDirection) {
+                    base = direction > 0 ? Math.max(base, exact) : Math.min(base, exact);
+                }
+                volumeDirection = direction;
+                lastVolumeKeyAt = currentTime;
+                showVolume(Math.max(0, Math.min(100, base + direction * 2)));
             } else if (exact >= 0) {
                 // Even if the OEM omitted the value extras, covering the TCL OSD
                 // immediately with the last known value is better than waiting for CEC.
@@ -95,6 +120,8 @@ public class ArcVolumeService extends Service {
             // this is a short backup read in case the OEM skips that notification.
             handler.removeCallbacks(readAndMaybeShow);
             handler.postDelayed(readAndMaybeShow, 180);
+            handler.removeCallbacks(settleToExact);
+            handler.postDelayed(settleToExact, CEC_SETTLE_MS);
         }
     };
 
@@ -106,6 +133,7 @@ public class ArcVolumeService extends Service {
 
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         lastVolume = readArcVolume();
+        lastShownRaw = lastVolume;
 
         final ContentResolver cr = getContentResolver();
         Uri uri = Settings.System.getUriFor(KEY_ARC_VOLUME);
@@ -154,6 +182,15 @@ public class ArcVolumeService extends Service {
     }
 
     private void showVolume(int rawValue) {
+        int visible = Math.max(0, Math.min(100, rawValue));
+        if (volumeDirection != 0 && lastShownRaw >= 0
+                && SystemClock.uptimeMillis() - lastVolumeKeyAt < CEC_SETTLE_MS) {
+            if (volumeDirection > 0) visible = Math.max(visible, lastShownRaw);
+            else visible = Math.min(visible, lastShownRaw);
+        }
+        lastShownRaw = visible;
+        rawValue = visible;
+
         // Accessibility overlays are trusted system overlays. Route through the live
         // bound accessibility service so Android does not clamp us to the untrusted
         // APPLICATION_OVERLAY layer/opacity.
