@@ -11,6 +11,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.content.SharedPreferences;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
@@ -35,6 +36,9 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
     private TextView numberView;
     private View fillView;
     private int trackHeightPx;
+    private int lastDisplayed = -1;
+    private int lastFillHeight = -1;
+    private WindowManager.LayoutParams windowParams;
     private final Runnable hide = this::hideOverlay;
 
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
@@ -89,11 +93,18 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
         int value = Math.max(0, Math.min(100, rawValue));
         int displayValue = Math.round(value / 2.0f);
 
-        numberView.setText(String.valueOf(displayValue));
+        if (displayValue != lastDisplayed) {
+            numberView.setText(String.valueOf(displayValue));
+            lastDisplayed = displayValue;
+        }
         FrameLayout.LayoutParams fp =
                 (FrameLayout.LayoutParams) fillView.getLayoutParams();
-        fp.height = Math.max(0, Math.round(trackHeightPx * (value / 100.0f)));
-        fillView.setLayoutParams(fp);
+        int fillHeight = Math.max(0, Math.round(trackHeightPx * (value / 100.0f)));
+        if (fillHeight != lastFillHeight) {
+            fp.height = fillHeight;
+            fillView.setLayoutParams(fp);
+            lastFillHeight = fillHeight;
+        }
 
         // The window/surface already exists above TCL SystemUI. Revealing it is just
         // an alpha change, avoiding the ~80-100 ms addView/first-draw delay seen in v10.
@@ -156,12 +167,14 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
                         | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT);
         lp.gravity = Gravity.RIGHT | Gravity.CENTER_VERTICAL;
-        lp.x = SYS_X_PX;
-        lp.y = SYS_Y_PX;
+        SharedPreferences prefs = getSharedPreferences("osd_position", MODE_PRIVATE);
+        lp.x = SYS_X_PX + prefs.getInt("offset_x", 0);
+        lp.y = SYS_Y_PX + prefs.getInt("offset_y", 0);
         lp.setTitle("ARC Volume Accessibility OSD");
 
         try {
             windowManager.addView(root, lp);
+            windowParams = lp;
             overlay = root;
             numberView = number;
             fillView = fill;
@@ -171,6 +184,19 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
             fillView = null;
             trackHeightPx = 0;
         }
+    }
+
+    public static void refreshPosition() {
+        VolumeKeyAccessibilityService s = instance;
+        if (s != null) s.handler.post(s::applyPosition);
+    }
+
+    private void applyPosition() {
+        if (overlay == null || windowParams == null || windowManager == null) return;
+        SharedPreferences prefs = getSharedPreferences("osd_position", MODE_PRIVATE);
+        windowParams.x = SYS_X_PX + prefs.getInt("offset_x", 0);
+        windowParams.y = SYS_Y_PX + prefs.getInt("offset_y", 0);
+        try { windowManager.updateViewLayout(overlay, windowParams); } catch (Exception ignored) {}
     }
 
     private void hideOverlay() {
@@ -188,6 +214,9 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
         numberView = null;
         fillView = null;
         trackHeightPx = 0;
+        lastDisplayed = -1;
+        lastFillHeight = -1;
+        windowParams = null;
     }
 
     private int dp(float v) {
