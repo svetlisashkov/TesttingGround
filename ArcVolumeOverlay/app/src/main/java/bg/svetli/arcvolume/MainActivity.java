@@ -12,6 +12,7 @@ import android.view.Gravity;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.content.SharedPreferences;
 
 public class MainActivity extends Activity {
     private TextView status;
@@ -42,7 +43,7 @@ public class MainActivity extends Activity {
 
         TextView subtitle = text(
                 "Замества визуално TCL ARC плъзгача със стил като системния TV volume OSD.\n" +
-                "Позицията е фиксирана точно върху системния прозорец: 120×400, x=50.",
+                "Базова позиция: 120×400, x=50, y=0. Ръчните корекции са по избор.",
                 16);
         subtitle.setGravity(Gravity.CENTER);
         subtitle.setPadding(0, dp(12), 0, dp(24));
@@ -74,8 +75,46 @@ public class MainActivity extends Activity {
         sonyDown.setOnClickListener(v -> adjustSony(AudioManager.ADJUST_LOWER));
         root.addView(sonyDown);
 
+        TextView pos = text("", 16);
+        pos.setGravity(Gravity.CENTER);
+        pos.setPadding(0, dp(12), 0, 0);
+        root.addView(pos);
+        LinearLayout controls = new LinearLayout(this);
+        controls.setGravity(Gravity.CENTER);
+        root.addView(controls);
+        addPositionButton(controls, "◀", -5, 0, pos);
+        addPositionButton(controls, "▶", 5, 0, pos);
+        addPositionButton(controls, "▲", 0, -5, pos);
+        addPositionButton(controls, "▼", 0, 5, pos);
+        Button reset = button("Нулирай позицията");
+        reset.setOnClickListener(v -> {
+            getSharedPreferences("osd_position", MODE_PRIVATE).edit().clear().apply();
+            updatePositionLabel(pos);
+            VolumeKeyAccessibilityService.refreshPosition();
+        });
+        root.addView(reset);
+        updatePositionLabel(pos);
         setContentView(root);
         refreshStatus();
+    }
+
+    private void addPositionButton(LinearLayout row, String label, int dx, int dy, TextView pos) {
+        Button b = new Button(this);
+        b.setText(label);
+        row.addView(b);
+        b.setOnClickListener(v -> {
+            SharedPreferences p = getSharedPreferences("osd_position", MODE_PRIVATE);
+            p.edit().putInt("offset_x", p.getInt("offset_x", 0) + dx)
+                    .putInt("offset_y", p.getInt("offset_y", 0) + dy).apply();
+            updatePositionLabel(pos);
+            VolumeKeyAccessibilityService.refreshPosition();
+        });
+    }
+
+    private void updatePositionLabel(TextView v) {
+        SharedPreferences p = getSharedPreferences("osd_position", MODE_PRIVATE);
+        v.setText("Корекция X: " + p.getInt("offset_x", 0) + " px; Y: "
+                + p.getInt("offset_y", 0) + " px (стъпка 5 px)");
     }
 
     private void requestOverlayPermission() {
