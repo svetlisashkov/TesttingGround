@@ -16,6 +16,7 @@ import android.content.SharedPreferences;
 import android.widget.RadioGroup;
 import android.widget.RadioButton;
 import android.widget.Toast;
+import android.widget.ScrollView;
 import org.json.JSONObject;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -146,7 +147,10 @@ public class MainActivity extends Activity {
             startActivityForResult(i, IMPORT_SETTINGS);
         });
         root.addView(imp);
-        setContentView(root);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.addView(root);
+        setContentView(scroll);
         refreshStatus();
     }
 
