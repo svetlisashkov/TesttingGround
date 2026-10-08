@@ -10,8 +10,19 @@ android {
         applicationId 'bg.svetli.arcvolume'
         minSdk 26
         targetSdk 29
-        versionCode 14
-        versionName '14.0'
+        versionCode 15
+        versionName '15.0'
+    }
+
+    signingConfigs {
+        debug {
+            if (System.getenv('ARC_VOLUME_KEYSTORE')) {
+                storeFile file(System.getenv('ARC_VOLUME_KEYSTORE'))
+                storePassword 'android'
+                keyAlias 'androiddebugkey'
+                keyPassword 'android'
+            }
+        }
     }
 
     buildTypes {
