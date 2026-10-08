@@ -13,6 +13,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.content.SharedPreferences;
 import android.view.Gravity;
@@ -67,6 +68,20 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
     private int lastFillHeight = -1;
     private WindowManager.LayoutParams windowParams;
     private final Runnable hide = this::hideOverlay;
+    // Local stream events precede delayed CEC confirmations. Display the
+    // already-calculated estimate immediately, but never let older reports
+    // move the number against the latest key direction during an active burst.
+    private static final long PREDICTION_GUARD_MS = 1100;
+    private int lastTriggerRaw = -1;
+    private int lastRenderedRaw = -1;
+    private int triggerDirection = 0;
+    private long lastTriggerChangeAt = 0;
+    private final Runnable reconcilePrediction = () -> {
+        if (volumeReaderHandler != null) {
+            volumeReaderHandler.removeCallbacks(readConfirmedVolume);
+            volumeReaderHandler.post(readConfirmedVolume);
+        }
+    };
 
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
@@ -132,8 +147,20 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
         ensureOverlay();
         if (overlay == null || numberView == null || fillView == null) return;
 
-        // The caller may pass a speculative estimate. Use it only to reveal
-        // the pre-created OSD; query the confirmed Sony volume off the UI thread.
+        // ArcVolumeService already calculates an early estimate from
+        // VOLUME_CHANGED_ACTION. Render it immediately instead of waiting
+        // for the later Sony/CEC SettingsProvider update.
+        int estimate = Math.max(0, Math.min(100, rawValue));
+        if (estimate != lastTriggerRaw) {
+            if (lastTriggerRaw >= 0) {
+                triggerDirection = Integer.signum(estimate - lastTriggerRaw);
+            }
+            lastTriggerRaw = estimate;
+            lastTriggerChangeAt = SystemClock.uptimeMillis();
+            renderRawVolume(estimate);
+            handler.removeCallbacks(reconcilePrediction);
+            handler.postDelayed(reconcilePrediction, PREDICTION_GUARD_MS + 50);
+        }
         if (volumeReaderHandler != null) {
             volumeReaderHandler.removeCallbacks(readConfirmedVolume);
             volumeReaderHandler.post(readConfirmedVolume);
@@ -145,31 +172,39 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
     }
 
     private void renderConfirmedVolume(int confirmed) {
-        if (overlay == null || numberView == null || fillView == null) return;
-        if (confirmed >= 0) {
-            int value = Math.max(0, Math.min(100, confirmed));
-            // The TCL ARC value becomes 0 when Sony reports Mute. This only
-            // changes the OSD glyph; audio/CEC control remains untouched.
-            boolean muted = value == 0;
-            if (iconView != null && muted != mutedIconVisible) {
-                iconView.setImageResource(muted ? R.drawable.ic_volume_muted : R.drawable.ic_volume);
-                mutedIconVisible = muted;
-            }
-            int displayValue = getSharedPreferences("arc_volume_settings", MODE_PRIVATE)
-                    .getInt("volume_scale", 50) == 100 ? value : Math.round(value / 2.0f);
+        if (overlay == null || numberView == null || fillView == null || confirmed < 0) return;
+        int value = Math.max(0, Math.min(100, confirmed));
+        // Mute is derived only from the real Sony volume, never an estimate.
+        boolean muted = value == 0;
+        if (iconView != null && muted != mutedIconVisible) {
+            iconView.setImageResource(muted ? R.drawable.ic_volume_muted : R.drawable.ic_volume);
+            mutedIconVisible = muted;
+        }
+        // While the buttons are being pressed, CEC reports can arrive out of
+        // order. Ignore confirmations that would visually reverse the latest
+        // direction; the scheduled settle read restores the exact Sony value.
+        if (lastRenderedRaw >= 0
+                && SystemClock.uptimeMillis() - lastTriggerChangeAt < PREDICTION_GUARD_MS
+                && ((triggerDirection > 0 && value < lastRenderedRaw)
+                    || (triggerDirection < 0 && value > lastRenderedRaw))) return;
+        renderRawVolume(value);
+    }
 
-            if (displayValue != lastDisplayed) {
-                numberView.setText(String.valueOf(displayValue));
-                lastDisplayed = displayValue;
-            }
-            FrameLayout.LayoutParams fp =
-                    (FrameLayout.LayoutParams) fillView.getLayoutParams();
-            int fillHeight = Math.max(0, Math.round(trackHeightPx * (value / 100.0f)));
-            if (fillHeight != lastFillHeight) {
-                fp.height = fillHeight;
-                fillView.setLayoutParams(fp);
-                lastFillHeight = fillHeight;
-            }
+    private void renderRawVolume(int value) {
+        if (overlay == null || numberView == null || fillView == null) return;
+        lastRenderedRaw = value;
+        int displayValue = getSharedPreferences("arc_volume_settings", MODE_PRIVATE)
+                .getInt("volume_scale", 50) == 100 ? value : Math.round(value / 2.0f);
+        if (displayValue != lastDisplayed) {
+            numberView.setText(String.valueOf(displayValue));
+            lastDisplayed = displayValue;
+        }
+        int fillHeight = Math.max(0, Math.round(trackHeightPx * (value / 100.0f)));
+        if (fillHeight != lastFillHeight) {
+            FrameLayout.LayoutParams fp = (FrameLayout.LayoutParams) fillView.getLayoutParams();
+            fp.height = fillHeight;
+            fillView.setLayoutParams(fp);
+            lastFillHeight = fillHeight;
         }
     }
 
@@ -278,6 +313,10 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
         iconView = null;
         mutedIconVisible = false;
         trackHeightPx = 0;
+        lastTriggerRaw = -1;
+        lastRenderedRaw = -1;
+        triggerDirection = 0;
+        lastTriggerChangeAt = 0;
         lastDisplayed = -1;
         lastFillHeight = -1;
         windowParams = null;
