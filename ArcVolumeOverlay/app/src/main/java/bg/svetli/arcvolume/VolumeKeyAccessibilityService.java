@@ -174,6 +174,7 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
     private void renderConfirmedVolume(int confirmed) {
         if (overlay == null || numberView == null || fillView == null || confirmed < 0) return;
         int value = Math.max(0, Math.min(100, confirmed));
+        if (lastTriggerRaw < 0) lastTriggerRaw = value;
         // Mute is derived only from the real Sony volume, never an estimate.
         boolean muted = value == 0;
         if (iconView != null && muted != mutedIconVisible) {
