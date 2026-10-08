@@ -82,10 +82,10 @@ public class MainActivity extends Activity {
         LinearLayout controls = new LinearLayout(this);
         controls.setGravity(Gravity.CENTER);
         root.addView(controls);
-        addPositionButton(controls, "◀", -5, 0, pos);
-        addPositionButton(controls, "▶", 5, 0, pos);
-        addPositionButton(controls, "▲", 0, -5, pos);
-        addPositionButton(controls, "▼", 0, 5, pos);
+        addPositionButton(controls, "◀", -1, 0, pos);
+        addPositionButton(controls, "▶", 1, 0, pos);
+        addPositionButton(controls, "▲", 0, -1, pos);
+        addPositionButton(controls, "▼", 0, 1, pos);
         Button reset = button("Нулирай позицията");
         reset.setOnClickListener(v -> {
             getSharedPreferences("osd_position", MODE_PRIVATE).edit().clear().apply();
@@ -114,7 +114,7 @@ public class MainActivity extends Activity {
     private void updatePositionLabel(TextView v) {
         SharedPreferences p = getSharedPreferences("osd_position", MODE_PRIVATE);
         v.setText("Корекция X: " + p.getInt("offset_x", 0) + " px; Y: "
-                + p.getInt("offset_y", 0) + " px (стъпка 5 px)");
+                + p.getInt("offset_y", 0) + " px (стъпка 1 px)");
     }
 
     private void requestOverlayPermission() {
