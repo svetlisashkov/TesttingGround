@@ -6,6 +6,8 @@ on:
     paths:
       - '.github/workflows/arc-volume-build.yml'
   workflow_dispatch:
+  schedule:
+    - cron: '17 3 */4 * *'
 
 concurrency:
   group: arc-volume-stable-signing
@@ -36,14 +38,10 @@ jobs:
         with:
           path: /home/runner/.android/debug.keystore
           key: arc-volume-debug-keystore-v2
+          fail-on-cache-miss: true
 
-      - name: Bootstrap stable debug signing key
-        run: |
-          mkdir -p "$HOME/.android"
-          if [ ! -f "$HOME/.android/debug.keystore" ]; then
-            keytool -genkeypair -noprompt -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
-          fi
-          test -s "$HOME/.android/debug.keystore"
+      - name: Verify stable signing key
+        run: test -s "$HOME/.android/debug.keystore"
 
       - name: Build debug APK
         env:
