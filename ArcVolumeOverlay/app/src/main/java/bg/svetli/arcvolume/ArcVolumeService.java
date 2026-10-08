@@ -19,6 +19,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
@@ -48,6 +49,24 @@ public class ArcVolumeService extends Service {
     private View overlayView;
     private boolean overlayAttached = false;
     private int lastVolume = -1;
+    // During rapid presses, the CEC-reported value can lag behind the early
+    // VOLUME_CHANGED_ACTION estimate. Keep the OSD monotonic within one burst.
+    private static final long BURST_GAP_MS = 900;
+    private static final long CEC_SETTLE_MS = 1600;
+    private int lastShownRaw = -1;
+    private int volumeDirection = 0;
+    private int lastLocalStreamValue = -1;
+    private long lastVolumeKeyAt = 0;
+    private final Runnable settleToExact = () -> {
+        volumeDirection = 0;
+        lastLocalStreamValue = -1;
+        int confirmed = readArcVolume();
+        if (confirmed >= 0) {
+            lastVolume = confirmed;
+            if (confirmed != lastShownRaw) showVolume(confirmed);
+        }
+    };
+
     private final Runnable hideOverlay = this::removeOverlay;
 
     private final Runnable readAndMaybeShow = new Runnable() {
@@ -70,20 +89,51 @@ public class ArcVolumeService extends Service {
                     "android.media.EXTRA_VOLUME_STREAM_TYPE", -1);
             if (stream != android.media.AudioManager.STREAM_MUSIC) return;
 
-            // Cover the TCL OSD immediately, but never invent an intermediate
-            // Sony value. Fast CEC notifications can otherwise cause oscillation.
-            int confirmed = readArcVolume();
-            if (confirmed >= 0) {
-                lastVolume = confirmed;
-                showVolume(confirmed);
-            } else if (lastVolume >= 0) {
-                showVolume(lastVolume);
+            final int now = intent.getIntExtra(
+                    "android.media.EXTRA_VOLUME_STREAM_VALUE", -1);
+            final int before = intent.getIntExtra(
+                    "android.media.EXTRA_PREV_VOLUME_STREAM_VALUE", -1);
+
+            // This broadcast is emitted by AudioService at the first local volume
+            // change, roughly a second before Sony's final CEC Report Audio Status.
+            // Show our high-layer OSD immediately so TCL's +/- OSD never becomes visible.
+            int exact = readArcVolume();
+            if (exact >= 0 && now >= 0 && before >= 0 && now != before) {
+                long currentTime = SystemClock.uptimeMillis();
+                boolean sameBurst = lastLocalStreamValue >= 0
+                        && currentTime - lastVolumeKeyAt < BURST_GAP_MS;
+                // AudioService may emit several notifications for one volume
+                // change. Count only changes of the actual local stream value.
+                int delta = sameBurst ? now - lastLocalStreamValue : now - before;
+                // Large discontinuities can result from stream reconfiguration,
+                // not remote-key presses. Avoid large speculative OSD jumps.
+                if (Math.abs(delta) > 3) delta = Integer.signum(delta);
+                lastLocalStreamValue = now;
+                lastVolumeKeyAt = currentTime;
+                if (delta != 0) {
+                    int direction = Integer.signum(delta);
+                    int base = sameBurst && lastShownRaw >= 0 ? lastShownRaw : exact;
+                    if (sameBurst && direction == volumeDirection) {
+                        base = direction > 0 ? Math.max(base, exact) : Math.min(base, exact);
+                    }
+                    volumeDirection = direction;
+                    showVolume(Math.max(0, Math.min(100, base + delta * 2)));
+                } else {
+                    // A repeated broadcast refreshes visibility, not the number.
+                    showVolume(lastShownRaw >= 0 ? lastShownRaw : exact);
+                }
+            } else if (exact >= 0) {
+                // Even if the OEM omitted the value extras, covering the TCL OSD
+                // immediately with the last known value is better than waiting for CEC.
+                showVolume(exact);
             }
 
-            // A short safety read catches CEC changes when the ContentObserver
-            // notification is delayed or skipped by the TV firmware.
+            // The ContentObserver normally supplies the exact Sony-reported value later;
+            // this is a short backup read in case the OEM skips that notification.
             handler.removeCallbacks(readAndMaybeShow);
             handler.postDelayed(readAndMaybeShow, 180);
+            handler.removeCallbacks(settleToExact);
+            handler.postDelayed(settleToExact, CEC_SETTLE_MS);
         }
     };
 
@@ -95,6 +145,7 @@ public class ArcVolumeService extends Service {
 
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         lastVolume = readArcVolume();
+        lastShownRaw = lastVolume;
 
         final ContentResolver cr = getContentResolver();
         Uri uri = Settings.System.getUriFor(KEY_ARC_VOLUME);
@@ -143,6 +194,15 @@ public class ArcVolumeService extends Service {
     }
 
     private void showVolume(int rawValue) {
+        int visible = Math.max(0, Math.min(100, rawValue));
+        if (volumeDirection != 0 && lastShownRaw >= 0
+                && SystemClock.uptimeMillis() - lastVolumeKeyAt < CEC_SETTLE_MS) {
+            if (volumeDirection > 0) visible = Math.max(visible, lastShownRaw);
+            else visible = Math.min(visible, lastShownRaw);
+        }
+        lastShownRaw = visible;
+        rawValue = visible;
+
         // Accessibility overlays are trusted system overlays. Route through the live
         // bound accessibility service so Android does not clamp us to the untrusted
         // APPLICATION_OVERLAY layer/opacity.
