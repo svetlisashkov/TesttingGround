@@ -69,3 +69,5 @@ jobs:
 # v10
 
 # v11 precreated overlay
+
+# v12 build: preserve stable debug keystore
