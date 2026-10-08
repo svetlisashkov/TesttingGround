@@ -11,6 +11,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.content.SharedPreferences;
 import android.view.Gravity;
 import android.view.View;
@@ -90,21 +91,28 @@ public class VolumeKeyAccessibilityService extends AccessibilityService {
         ensureOverlay();
         if (overlay == null || numberView == null || fillView == null) return;
 
-        int value = Math.max(0, Math.min(100, rawValue));
-        int displayValue = getSharedPreferences("arc_volume_settings", MODE_PRIVATE)
-                .getInt("volume_scale", 50) == 100 ? value : Math.round(value / 2.0f);
+        // The caller may pass an early, speculative volume estimate. Use it
+        // only as a trigger; the visible number must come from TCL's actual
+        // ARC setting. Never render a prediction as a confirmed Sony value.
+        int confirmed = Settings.System.getInt(getContentResolver(),
+                ArcVolumeService.KEY_ARC_VOLUME, -1);
+        if (confirmed >= 0) {
+            int value = Math.max(0, Math.min(100, confirmed));
+            int displayValue = getSharedPreferences("arc_volume_settings", MODE_PRIVATE)
+                    .getInt("volume_scale", 50) == 100 ? value : Math.round(value / 2.0f);
 
-        if (displayValue != lastDisplayed) {
-            numberView.setText(String.valueOf(displayValue));
-            lastDisplayed = displayValue;
-        }
-        FrameLayout.LayoutParams fp =
-                (FrameLayout.LayoutParams) fillView.getLayoutParams();
-        int fillHeight = Math.max(0, Math.round(trackHeightPx * (value / 100.0f)));
-        if (fillHeight != lastFillHeight) {
-            fp.height = fillHeight;
-            fillView.setLayoutParams(fp);
-            lastFillHeight = fillHeight;
+            if (displayValue != lastDisplayed) {
+                numberView.setText(String.valueOf(displayValue));
+                lastDisplayed = displayValue;
+            }
+            FrameLayout.LayoutParams fp =
+                    (FrameLayout.LayoutParams) fillView.getLayoutParams();
+            int fillHeight = Math.max(0, Math.round(trackHeightPx * (value / 100.0f)));
+            if (fillHeight != lastFillHeight) {
+                fp.height = fillHeight;
+                fillView.setLayoutParams(fp);
+                lastFillHeight = fillHeight;
+            }
         }
 
         // The window/surface already exists above TCL SystemUI. Revealing it is just
